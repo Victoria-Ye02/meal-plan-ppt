@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>AI 레시피 & 식단 플래너</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    background: #f4f6f5;
+    color: #10201c;
+    overflow: hidden;
+    height: 100vh;
+  }
+  .deck { position: relative; width: 100vw; height: 100vh; }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 5vh 7vw;
+    opacity: 0;
+    transform: translateY(24px);
+    pointer-events: none;
+    transition: opacity 0.4s cubic-bezier(.22,.61,.36,1), transform 0.4s cubic-bezier(.22,.61,.36,1);
+  }
+  .slide.active { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .slide.prev { transform: translateY(-24px); }
+  .slide.center { justify-content: center; align-items: center; text-align: center; }
+
+  .idx { position: fixed; top: 28px; left: 7vw; font-size: 15px; font-weight: 700; color: #0f5e52; letter-spacing: 0.08em; z-index: 6; }
+  .eyebrow { font-size: 17px; letter-spacing: 0.1em; text-transform: uppercase; color: #0f5e52; font-weight: 700; margin-bottom: 16px; }
+  h1 { font-size: 58px; font-weight: 800; line-height: 1.22; color: #0b2620; }
+  h2 { font-size: 42px; font-weight: 800; margin-bottom: 34px; color: #0b2620; }
+  p.lead { font-size: 23px; color: #4b5c58; max-width: 780px; line-height: 1.55; margin-top: 14px; }
+
+  .grid { display: grid; gap: 18px; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: #fff; border: 1.5px solid #dfe6e3; border-radius: 14px; padding: 26px 26px;
+    opacity: 0; transform: translateY(10px); animation: cardIn 0.45s ease forwards;
+  }
+  .active .card:nth-child(1) { animation-delay: 0.05s; } .active .card:nth-child(2) { animation-delay: 0.11s; }
+  .active .card:nth-child(3) { animation-delay: 0.17s; } .active .card:nth-child(4) { animation-delay: 0.23s; }
+  .active .card:nth-child(5) { animation-delay: 0.29s; } .active .card:nth-child(6) { animation-delay: 0.35s; }
+  .active .card:nth-child(7) { animation-delay: 0.41s; } .active .card:nth-child(8) { animation-delay: 0.47s; }
+  @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+  .card h3 { font-size: 21px; color: #0b2620; font-weight: 700; margin-bottom: 8px; }
+  .card p { font-size: 17px; color: #5c6d69; line-height: 1.5; }
+
+  .tag {
+    display: inline-block; background: #e7f3f0; color: #0f5e52; font-size: 17px; font-weight: 600;
+    padding: 6px 16px; border-radius: 20px; margin: 3px 4px 3px 0;
+  }
+
+  /* --- Pipeline diagram (original layout) --- */
+  .pipeline { display: flex; align-items: flex-start; width: 100%; max-width: 1100px; margin: 0 auto; }
+  .pstep { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; }
+  .pnum {
+    width: 62px; height: 62px; border-radius: 50%; background: #fff; border: 3px solid #0f5e52;
+    color: #0f5e52; font-weight: 800; font-size: 24px; display: flex; align-items: center; justify-content: center;
+    opacity: 0; transform: scale(0.6); animation: numPop 0.4s cubic-bezier(.22,1.5,.36,1) forwards;
+    z-index: 2; background: #f4f6f5;
+  }
+  .pstep.hi .pnum { background: #0f5e52; color: #fff; }
+  .active .pstep:nth-child(1) .pnum { animation-delay: 0.05s; }
+  .active .pstep:nth-child(3) .pnum { animation-delay: 0.18s; }
+  .active .pstep:nth-child(5) .pnum { animation-delay: 0.31s; }
+  .active .pstep:nth-child(7) .pnum { animation-delay: 0.44s; }
+  .active .pstep:nth-child(9) .pnum { animation-delay: 0.57s; }
+  @keyframes numPop { to { opacity: 1; transform: scale(1); } }
+  .ptitle {
+    margin-top: 14px; font-size: 18px; font-weight: 700; color: #0b2620;
+    opacity: 0; animation: fadeUp 0.4s ease forwards;
+  }
+  .active .pstep:nth-child(1) .ptitle { animation-delay: 0.12s; }
+  .active .pstep:nth-child(3) .ptitle { animation-delay: 0.25s; }
+  .active .pstep:nth-child(5) .ptitle { animation-delay: 0.38s; }
+  .active .pstep:nth-child(7) .ptitle { animation-delay: 0.51s; }
+  .active .pstep:nth-child(9) .ptitle { animation-delay: 0.64s; }
+  .psub {
+    margin-top: 5px; font-size: 15px; color: #7a8b87;
+    opacity: 0; animation: fadeUp 0.4s ease forwards;
+  }
+  .active .pstep:nth-child(1) .psub { animation-delay: 0.15s; }
+  .active .pstep:nth-child(3) .psub { animation-delay: 0.28s; }
+  .active .pstep:nth-child(5) .psub { animation-delay: 0.41s; }
+  .active .pstep:nth-child(7) .psub { animation-delay: 0.54s; }
+  .active .pstep:nth-child(9) .psub { animation-delay: 0.67s; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .pconn {
+    flex: 0.5; height: 3px; background: #cddbd7; margin-top: 30px;
+    opacity: 0; animation: growLine 0.35s ease forwards;
+  }
+  .active .pconn:nth-child(2) { animation-delay: 0.14s; }
+  .active .pconn:nth-child(4) { animation-delay: 0.27s; }
+  .active .pconn:nth-child(6) { animation-delay: 0.40s; }
+  .active .pconn:nth-child(8) { animation-delay: 0.53s; }
+  @keyframes growLine { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: scaleX(1); } }
+
+  .fanout { display: flex; gap: 18px; width: 100%; max-width: 1020px; margin: 40px auto 0; }
+  .fbox {
+    flex: 1; background: #fff; border: 2px solid #dfe6e3; border-radius: 12px; padding: 20px 16px; text-align: center;
+    opacity: 0; transform: translateY(10px); animation: cardIn 0.4s ease forwards;
+  }
+  .active .fbox:nth-child(1) { animation-delay: 0.7s; } .active .fbox:nth-child(2) { animation-delay: 0.78s; }
+  .active .fbox:nth-child(3) { animation-delay: 0.86s; } .active .fbox:nth-child(4) { animation-delay: 0.94s; }
+  .fbox h4 { font-size: 17px; color: #0b2620; font-weight: 700; }
+  .fbox span { display: block; font-size: 14px; color: #7a8b87; margin-top: 5px; }
+
+  .vs-row { display: flex; align-items: stretch; gap: 22px; width: 100%; max-width: 920px; }
+  .vs-card {
+    background: #0b2620; color: #fff; border-radius: 16px; padding: 30px 28px; flex: 1;
+    opacity: 0; transform: translateY(12px); animation: cardIn 0.45s ease forwards;
+  }
+  .active .vs-card:nth-child(1) { animation-delay: 0.08s; }
+  .active .vs-card:nth-child(2) { animation-delay: 0.24s; }
+  .vs-card .role { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: #7fe0c9; font-weight: 700; margin-bottom: 10px; }
+  .vs-card h3 { font-size: 24px; margin-bottom: 8px; }
+  .vs-card p { font-size: 17px; color: #b9d4cd; line-height: 1.5; }
+
+  .bignum {
+    font-size: 76px; font-weight: 800; color: #0f5e52;
+    opacity: 0; animation: bump 0.5s cubic-bezier(.22,1.4,.36,1) forwards;
+  }
+  @keyframes bump { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+  .stat-label { font-size: 17px; color: #4b5c58; margin-top: 8px; font-weight: 600; }
+
+  .nav {
+    position: fixed; bottom: 24px; right: 32px;
+    display: flex; align-items: center; gap: 14px; font-size: 14px; color: #7a8b87; z-index: 10;
+  }
+  .nav button {
+    background: #e7f3f0; color: #0f5e52; border: none; width: 42px; height: 42px; border-radius: 50%;
+    font-size: 18px; cursor: pointer; transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .nav button:hover { background: #d3e8e2; transform: scale(1.06); }
+  .progress { position: fixed; top: 0; left: 0; height: 4px; background: #0f5e52; transition: width 0.4s cubic-bezier(.22,.61,.36,1); z-index: 5; }
+  code { background: #e7f3f0; padding: 4px 12px; border-radius: 6px; font-size: 18px; color: #0f5e52; }
+
+  .stack-table { width: 100%; max-width: 1080px; border-collapse: collapse; }
+  .stack-table th {
+    text-align: left; font-size: 15px; color: #0f5e52; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 12px 16px; background: #e7f3f0; border-bottom: 2px solid #0f5e52;
+  }
+  .stack-table th:first-child { border-radius: 10px 0 0 0; }
+  .stack-table th:last-child { border-radius: 0 10px 0 0; }
+  .stack-table td { padding: 16px; font-size: 16px; border-bottom: 1px solid #e2e8e6; vertical-align: top; }
+  .stack-table td.layer { font-weight: 700; color: #0b2620; width: 130px; }
+  .stack-table td.tech { font-weight: 700; color: #0f5e52; width: 240px; }
+  .stack-table td.role { color: #4b5c58; line-height: 1.5; }
+  .stack-table tr {
+    opacity: 0; transform: translateY(8px); animation: rowIn 0.4s ease forwards;
+  }
+  .active .stack-table tr:nth-child(1) { animation-delay: 0.04s; } .active .stack-table tr:nth-child(2) { animation-delay: 0.09s; }
+  .active .stack-table tr:nth-child(3) { animation-delay: 0.14s; } .active .stack-table tr:nth-child(4) { animation-delay: 0.19s; }
+  .active .stack-table tr:nth-child(5) { animation-delay: 0.24s; } .active .stack-table tr:nth-child(6) { animation-delay: 0.29s; }
+  .active .stack-table tr:nth-child(7) { animation-delay: 0.34s; } .active .stack-table tr:nth-child(8) { animation-delay: 0.39s; }
+  .active .stack-table tr:nth-child(9) { animation-delay: 0.44s; }
+  @keyframes rowIn { to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <section class="slide active center">
+    <div class="eyebrow">souschef — portfolio project</div>
+    <h1>AI 레시피 &amp; 식단 플래너</h1>
+    <p style="font-size:19px;color:#0f5e52;font-weight:600;margin-top:4px">Naw Victoria Ye Than</p>
+    <p class="lead">냉장고 속 재료를 입력하면 AI가 레시피를 추천하고, 식단표와 장보기 목록까지 만들어주는 풀스택 웹 애플리케이션</p>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">목적</div>
+    <h2>프로젝트 목표</h2>
+    <div class="grid grid-2" style="max-width:880px">
+      <div class="card">
+        <h3>실사용 목적</h3>
+        <p>재료로 뭘 만들지 모르는 사용자, 식단을 계획하고 싶은 사용자를 위한 서비스</p>
+      </div>
+      <div class="card">
+        <h3>포트폴리오 목적</h3>
+        <p>프론트엔드 · 백엔드 · 데이터베이스 · AI 통합 역량을 하나의 프로젝트로 증명</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Tech Stack</div>
+    <h2>확정 기술 스택</h2>
+    <table class="stack-table">
+      <thead>
+        <tr><th>계층</th><th>기술</th><th>역할</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="layer">프레임워크</td><td class="tech">Next.js</td><td class="role">React(프론트)와 API Routes(백엔드)를 한 프로젝트에서 처리</td></tr>
+        <tr><td class="layer">언어</td><td class="tech">TypeScript</td><td class="role">프론트-백엔드 타입 공유, 코드 안정성 확보</td></tr>
+        <tr><td class="layer">DB</td><td class="tech">PostgreSQL + pgvector</td><td class="role">레시피·식단 데이터 저장 + 벡터 검색(RAG) 동시 처리</td></tr>
+        <tr><td class="layer">ORM</td><td class="tech">Prisma</td><td class="role">타입 안전한 DB 쿼리, 스키마 마이그레이션 관리</td></tr>
+        <tr><td class="layer">인증</td><td class="tech">NextAuth.js</td><td class="role">로그인 / 회원가입, 비밀번호 안전 저장</td></tr>
+        <tr><td class="layer">AI</td><td class="tech">Claude + Embedding (OpenRouter)</td><td class="role">Claude=레시피 생성·챗봇, Embedding=벡터 검색(RAG)</td></tr>
+        <tr><td class="layer">호스팅</td><td class="tech">Neon</td><td class="role">PostgreSQL 클라우드 호스팅</td></tr>
+        <tr><td class="layer">배포</td><td class="tech">Vercel</td><td class="role">GitHub 연동 자동 배포, 서버리스 실행</td></tr>
+        <tr><td class="layer">협업</td><td class="tech">Git / GitHub</td><td class="role">버전 관리, 코드 저장 및 공유</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="slide center">
+    <div class="eyebrow">Architecture</div>
+    <h2>요청이 처리되는 순서</h2>
+    <div class="pipeline">
+      <div class="pstep"><div class="pnum">1</div><div class="ptitle">사용자</div><div class="psub">브라우저</div></div>
+      <div class="pconn"></div>
+      <div class="pstep"><div class="pnum">2</div><div class="ptitle">프론트엔드</div><div class="psub">Next.js UI</div></div>
+      <div class="pconn"></div>
+      <div class="pstep hi"><div class="pnum">3</div><div class="ptitle">API 라우트</div><div class="psub">인증 · 검증</div></div>
+      <div class="pconn"></div>
+      <div class="pstep"><div class="pnum">4</div><div class="ptitle">AI 처리</div><div class="psub">Claude / 임베딩</div></div>
+      <div class="pconn"></div>
+      <div class="pstep"><div class="pnum">5</div><div class="ptitle">데이터베이스</div><div class="psub">PostgreSQL</div></div>
+    </div>
+    <div class="fanout">
+      <div class="fbox"><h4>레시피 생성</h4><span>Claude</span></div>
+      <div class="fbox"><h4>AI 챗봇</h4><span>RAG · pgvector</span></div>
+      <div class="fbox"><h4>식단표 쓰기</h4><span>함수 호출</span></div>
+      <div class="fbox"><h4>장보기 목록</h4><span>DB 집계</span></div>
+    </div>
+  </section>
+
+  <section class="slide center">
+    <div class="eyebrow">AI 모델 구성</div>
+    <h2>두 개의 AI 모델</h2>
+    <div class="vs-row">
+      <div class="vs-card">
+        <div class="role">텍스트 생성</div>
+        <h3>Claude (Anthropic)</h3>
+        <p>레시피 생성 · 챗봇 응답 · 식단표 함수 호출</p>
+      </div>
+      <div class="vs-card">
+        <div class="role">벡터 검색</div>
+        <h3>text-embedding-3-small</h3>
+        <p>의미 기반 레시피 검색 (RAG)</p>
+      </div>
+    </div>
+    <p class="lead" style="font-size:19px;margin-top:20px">두 모델 모두 <b>OpenRouter</b> API 하나로 통합 호출</p>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Features</div>
+    <h2>주요 기능</h2>
+    <div class="grid grid-3" style="max-width:880px">
+      <div class="card"><h3>회원가입 / 로그인</h3></div>
+      <div class="card"><h3>AI 레시피 생성</h3></div>
+      <div class="card"><h3>즐겨찾기</h3></div>
+      <div class="card"><h3>7일 식단표</h3></div>
+      <div class="card"><h3>장보기 목록 자동 생성</h3></div>
+      <div class="card"><h3>AI 챗봇 (RAG)</h3></div>
+    </div>
+  </section>
+
+  <section class="slide center">
+    <div class="eyebrow">RAG — Retrieval Augmented Generation</div>
+    <h2>"디저트 뭐 있어?"</h2>
+    <div class="vs-row">
+      <div class="vs-card"><div class="role">Step 1</div><h3>검색</h3><p>질문을 벡터화 → 의미상 가까운 레시피만 추출</p></div>
+      <div class="vs-card"><div class="role">Step 2</div><h3>생성</h3><p>추출된 데이터를 Claude에게 전달 → 답변 생성</p></div>
+    </div>
+    <p class="lead" style="font-size:19px;margin-top:20px">키워드 매칭이 아닌 의미 기반 검색 — 프로덕션에서 정확도 검증 완료</p>
+  </section>
+
+  <section class="slide">
+    <div class="eyebrow">Live Demo</div>
+    <h2>링크</h2>
+    <div class="grid grid-2" style="max-width:880px">
+      <div class="card"><h3>실제 서비스</h3><p><code>meal-planner-livid-theta.vercel.app</code></p></div>
+      <div class="card"><h3>소스 코드</h3><p><code>github.com/Victoria-Ye02/meal-planner</code></p></div>
+    </div>
+  </section>
+
+  <section class="slide center">
+    <h1 style="font-size:50px">감사합니다</h1>
+    <p class="lead">질문 있으신가요?</p>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button onclick="go(-1)">‹</button>
+  <span id="counter">1 / N</span>
+  <button onclick="go(1)">›</button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let i = 0;
+  function resetAnim(el) {
+    el.querySelectorAll('.card, .vs-card, .bignum, .pnum, .ptitle, .psub, .pconn, .fbox, .stack-table tr').forEach(node => {
+      node.style.animation = 'none';
+      void node.offsetWidth;
+      node.style.animation = '';
+    });
+  }
+  function render() {
+    slides.forEach((s, idx) => {
+      s.classList.remove('active', 'prev');
+      if (idx === i) { s.classList.add('active'); resetAnim(s); }
+      else if (idx < i) { s.classList.add('prev'); }
+    });
+    document.getElementById('counter').textContent = (i+1) + ' / ' + slides.length;
+    document.getElementById('progress').style.width = ((i+1)/slides.length*100) + '%';
+  }
+  function go(d) { i = Math.min(Math.max(i + d, 0), slides.length - 1); render(); }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ') go(1);
+    if (e.key === 'ArrowLeft') go(-1);
+  });
+  render();
+</script>
+
+</body>
+</html>
